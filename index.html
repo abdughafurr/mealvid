@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>MealTube</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{
+  --bg-f:#ffffff; --card-f:#f3f4f6; --text-f:#111827; --muted-f:#6b7280; --accent-f:#ef4444; --accent-text-f:#ffffff;
+  --bg:var(--tg-theme-bg-color,var(--bg-f));
+  --card:var(--tg-theme-secondary-bg-color,var(--card-f));
+  --text:var(--tg-theme-text-color,var(--text-f));
+  --muted:var(--tg-theme-hint-color,var(--muted-f));
+  --accent:var(--tg-theme-button-color,var(--accent-f));
+  --accent-text:var(--tg-theme-button-text-color,var(--accent-text-f));
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg-f:#0f0f10; --card-f:#1c1c1f; --text-f:#f3f4f6; --muted-f:#9ca3af;}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 -apple-system,system-ui,Segoe UI,Roboto,sans-serif}
+#app{max-width:640px;margin:0 auto;padding:16px 16px 40px}
+h1{font-size:24px;margin:8px 0 4px}
+h2{font-size:18px;margin:16px 0 8px}
+p.muted,.muted{color:var(--muted);font-size:14px;margin:0 0 12px}
+.top{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.top .sp{flex:1}
+.icon-btn{background:var(--card);color:var(--text);border:0;border-radius:10px;padding:8px 12px;font-size:15px;cursor:pointer}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{background:var(--card);color:var(--text);border:2px solid transparent;border-radius:999px;padding:8px 14px;font-size:15px;cursor:pointer}
+.chip.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 15%,var(--card))}
+.chip .x{margin-left:6px;opacity:.6}
+.chip:disabled{opacity:.35;cursor:default}
+.cnt{font-size:13px;font-weight:400;color:var(--muted);margin-left:6px}
+.row{display:flex;gap:8px;margin-top:10px}
+input[type=text]{flex:1;min-width:0;background:var(--card);color:var(--text);border:0;border-radius:10px;padding:10px 12px;font-size:15px}
+.btn{display:block;width:100%;background:var(--accent);color:var(--accent-text);border:0;border-radius:12px;padding:14px;font-size:16px;font-weight:600;cursor:pointer;margin-top:16px}
+.btn.ghost{background:var(--card);color:var(--text)}
+.btn:disabled{opacity:.5}
+.slots{display:grid;gap:12px;margin-top:16px}
+.slot{background:var(--card);border:0;border-radius:16px;padding:18px;text-align:left;color:var(--text);cursor:pointer;display:flex;align-items:center;gap:14px}
+.slot .em{font-size:34px}
+.slot b{font-size:18px;display:block}
+.slot small{color:var(--muted)}
+.slot .badge{margin-left:auto;background:var(--accent);color:var(--accent-text);border-radius:999px;padding:4px 10px;font-size:12px;white-space:nowrap}
+.card{display:flex;gap:12px;background:var(--card);border-radius:14px;padding:8px;margin-bottom:10px;cursor:pointer;color:var(--text);border:0;width:100%;text-align:left}
+.card img{width:140px;aspect-ratio:16/9;object-fit:cover;border-radius:10px;flex-shrink:0;background:#0003}
+.card .t{font-size:14px;font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .m{font-size:12px;color:var(--muted);margin-top:4px}
+.card.cont{border:2px solid var(--accent)}
+.bar{height:4px;background:#8884;border-radius:2px;margin-top:6px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent)}
+.player{position:relative;width:100%;aspect-ratio:16/9;background:#000;border-radius:12px;overflow:hidden}
+.player iframe,.player #yt{position:absolute;inset:0;width:100%;height:100%}
+.msg{background:var(--card);border-radius:12px;padding:14px;color:var(--muted);text-align:center}
+.spin{width:28px;height:28px;border:3px solid #8884;border-top-color:var(--accent);border-radius:50%;margin:30px auto;animation:r 1s linear infinite}
+@keyframes r{to{transform:rotate(360deg)}}
+@media (max-width:420px){.card img{width:118px}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+/* ===================== НАСТРОЙКИ ===================== */
+const CONFIG = {
+  API_KEY: 'AIzaSyDZV1914GcukkC0ez9I6fndCikpNaFgCf0',
+  CACHE_HOURS: 12,          // сколько часов держать найденные видео в кэше
+  FINISHED_RATIO: 0.9,      // досмотрено, если просмотрено >= 90%
+  PAGE_SIZE: 6,             // сколько видео показывать за раз
+  MAX_LANGS_PER_FETCH: 2,   // 1 поиск = 100 единиц квоты; ограничиваем
+  MAX_TOPICS: 5,            // максимум тем всего (готовые + свои)
+  MAX_CUSTOM: 2,            // из них максимум своих
+  MAX_LANGS: 2              // максимум языков
+};
+
+const SLOTS = {
+  breakfast: { label: 'Завтрак', emoji: '🍳', min: 10, max: 18 },
+  lunch:     { label: 'Обед',    emoji: '🍲', min: 22, max: 32 },
+  dinner:    { label: 'Ужин',    emoji: '🍝', min: 28, max: 38 }
+};
+
+const LANGS = [
+  { code: 'ru', label: 'Русский' },
+  { code: 'en', label: 'English' },
+  { code: 'tr', label: 'Türkçe' },
+  { code: 'uz', label: "O'zbek" },
+  { code: 'tg', label: 'Тоҷикӣ' }
+];
+
+const CATEGORIES = [
+  { id: 'podcasts', label: '🎙 Подкасты',    q: { ru: 'подкаст', en: 'podcast', tr: 'podcast', uz: 'podkast', tg: 'подкаст' } },
+  { id: 'mountains',label: '⛰ Горы/Походы',  q: { ru: 'горы поход', en: 'mountain hiking', tr: 'dağ yürüyüşü', uz: "tog' sayohati", tg: 'кӯҳ сайёҳӣ' } },
+  { id: 'travel',   label: '✈️ Путешествия', q: { ru: 'путешествие влог', en: 'travel vlog', tr: 'seyahat vlog', uz: 'sayohat vlog', tg: 'сайёҳат' } },
+  { id: 'science',  label: '🔬 Наука',        q: { ru: 'научпоп', en: 'science explained', tr: 'bilim', uz: 'ilm fan', tg: 'илм' } },
+  { id: 'tech',     label: '💻 Технологии',   q: { ru: 'технологии обзор', en: 'tech review', tr: 'teknoloji inceleme', uz: 'texnologiya', tg: 'технология' } },
+  { id: 'humor',    label: '😂 Юмор',         q: { ru: 'стендап', en: 'stand up comedy', tr: 'stand up', uz: 'yumor', tg: 'юмор' } },
+  { id: 'cooking',  label: '🍳 Кулинария',    q: { ru: 'рецепт', en: 'cooking recipe', tr: 'yemek tarifi', uz: 'retsept', tg: 'дастурхон' } },
+  { id: 'sport',    label: '⚽ Спорт',        q: { ru: 'спорт обзор', en: 'sports highlights', tr: 'spor', uz: 'sport', tg: 'варзиш' } },
+  { id: 'history',  label: '🏛 История',      q: { ru: 'история документальный', en: 'history documentary', tr: 'tarih belgesel', uz: 'tarix', tg: 'таърих' } },
+  { id: 'cars',     label: '🚗 Авто',         q: { ru: 'автообзор', en: 'car review', tr: 'araba inceleme', uz: 'avto obzor', tg: 'мошин' } }
+];
+
+/* ===================== ХРАНИЛИЩЕ ===================== */
+const tg = window.Telegram && window.Telegram.WebApp;
+const inTelegram = !!(tg && tg.initData);
+const useCloud = !!(inTelegram && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast('6.9'));
+
+function safeParse(s) { try { return s ? JSON.parse(s) : null; } catch { return null; } }
+
+// Пользовательские данные: Telegram CloudStorage (в Mini App) или localStorage (на сайте)
+const store = {
+  get(key) {
+    return new Promise(res => {
+      if (useCloud) tg.CloudStorage.getItem(key, (err, val) => res(err ? null : safeParse(val)));
+      else { try { res(safeParse(localStorage.getItem(key))); } catch { res(null); } }
+    });
+  },
+  set(key, val) {
+    const s = JSON.stringify(val);
+    return new Promise(res => {
+      if (useCloud) tg.CloudStorage.setItem(key, s, () => res());
+      else { try { localStorage.setItem(key, s); } catch {} res(); }
+    });
+  }
+};
+
+// Кэш результатов поиска — всегда локально (большой объём)
+const cache = {
+  get(k) { try { return safeParse(localStorage.getItem('mt_cache_' + k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem('mt_cache_' + k, JSON.stringify(v)); } catch {} }
+};
+
+/* ===================== УТИЛИТЫ ===================== */
+const $app = document.getElementById('app');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function fmt(sec) {
+  sec = Math.max(0, Math.floor(sec || 0));
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0');
+}
+function parseISO(d) {
+  const m = /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/.exec(d || '');
+  return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0;
+}
+function shuffle(a) { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+function decodeHtml(s) { const t = document.createElement('textarea'); t.innerHTML = s; return t.value; }
+
+/* ===================== СОСТОЯНИЕ ===================== */
+let prefs = null;      // { langs:[], cats:[], custom:[] }
+let draft = null;      // черновик настроек
+let pools = {};        // slotKey -> { items, idx, tokens }
+const videos = {};     // id -> видео
+let backHandler = null;
+let player = null, playing = null, progTimer = null, lastSaved = -1;
+
+function selectedCats(p = prefs) {
+  const pre = CATEGORIES.filter(c => p.cats.includes(c.id));
+  const cus = (p.custom || []).map(t => ({ id: 'custom:' + t, label: t, q: t, custom: true }));
+  return [...pre, ...cus];
+}
+
+function setBack(fn) {
+  backHandler = fn;
+  if (!inTelegram) return;
+  if (fn) tg.BackButton.show(); else tg.BackButton.hide();
+}
+if (inTelegram) tg.BackButton.onClick(() => backHandler && backHandler());
+
+async function getSeen() { return (await store.get('seen')) || []; }
+async function addSeen(id) {
+  const seen = await getSeen();
+  if (!seen.includes(id)) { seen.push(id); await store.set('seen', seen.slice(-200)); }
+}
+
+/* ===================== YOUTUBE API ===================== */
+async function yt(path, params) {
+  const url = new URL('https://www.googleapis.com/youtube/v3/' + path);
+  Object.entries({ ...params, key: CONFIG.API_KEY }).forEach(([k, v]) => url.searchParams.set(k, v));
+  const r = await fetch(url);
+  const j = await r.json();
+  if (!r.ok) {
+    const reason = j?.error?.errors?.[0]?.reason || '';
+    if (reason === 'quotaExceeded') throw new Error('Дневной лимит YouTube API исчерпан. Попробуй завтра.');
+    if (reason === 'keyInvalid' || r.status === 400) throw new Error('Проблема с API-ключом. Проверь CONFIG.API_KEY.');
+    throw new Error(j?.error?.message || 'Ошибка YouTube API');
+  }
+  return j;
+}
+
+async function fetchCandidates(slotKey, pageTokens = {}) {
+  const slot = SLOTS[slotKey];
+  const cats = selectedCats();
+  const langs = shuffle(prefs.langs).slice(0, CONFIG.MAX_LANGS_PER_FETCH);
+  const duration = slot.max <= 20 ? 'medium' : 'long'; // medium: 4–20 мин, long: >20 мин
+  const ids = [], catOf = {}, newTokens = {};
+
+  // Один поиск на язык: все категории через оператор "|" (экономия квоты)
+  for (const l of langs) {
+    const presetQ = cats.filter(c => !c.custom).map(c => c.q[l] || c.q.en);
+    const customQ = cats.filter(c => c.custom).map(c => c.q);
+    const params = {
+      part: 'snippet', type: 'video', maxResults: 50,
+      videoEmbeddable: 'true', videoSyndicated: 'true',
+      videoDuration: duration, relevanceLanguage: l,
+      q: [...presetQ, ...customQ].join('|')
+    };
+    if (pageTokens[l]) params.pageToken = pageTokens[l];
+    const res = await yt('search', params);
+    newTokens[l] = res.nextPageToken || '';
+    for (const it of res.items || []) {
+      const id = it.id?.videoId;
+      if (!id || catOf[id]) continue;
+      const text = (it.snippet.title + ' ' + it.snippet.description).toLowerCase();
+      const cat = cats.find(c => (c.custom ? c.q : (c.q[l] || c.q.en)).toLowerCase().split(' ').some(w => w.length > 3 && text.includes(w)));
+      catOf[id] = cat ? cat.id : cats[0].id;
+      ids.push(id);
+    }
+  }
+
+  // Точная длительность
+  const items = [];
+  for (let i = 0; i < ids.length; i += 50) {
+    const res = await yt('videos', { part: 'contentDetails,snippet,statistics', id: ids.slice(i, i + 50).join(',') });
+    for (const v of res.items || []) {
+      const dur = parseISO(v.contentDetails.duration);
+      if (dur < slot.min * 60 || dur > slot.max * 60) continue;
+      const lang = (v.snippet.defaultAudioLanguage || v.snippet.defaultLanguage || '').slice(0, 2);
+      if (lang && !prefs.langs.includes(lang)) continue;
+      if (v.snippet.liveBroadcastContent && v.snippet.liveBroadcastContent !== 'none') continue;
+      items.push({
+        id: v.id,
+        title: decodeHtml(v.snippet.title),
+        channel: v.snippet.channelTitle,
+        thumb: v.snippet.thumbnails?.medium?.url || v.snippet.thumbnails?.default?.url || '',
+        duration: dur,
+        views: +(v.statistics?.viewCount || 0),
+        cat: catOf[v.id]
+      });
+    }
+  }
+  return { items: shuffle(items), tokens: newTokens };
+}
+
+async function getPool(slotKey, force = false) {
+  const cacheKey = slotKey + '_' + prefs.langs.join(',') + '_' + selectedCats().map(c => c.id).join(',');
+  if (!force && pools[slotKey] && pools[slotKey].key === cacheKey) return pools[slotKey];
+  if (!force) {
+    const c = cache.get(cacheKey);
+    if (c && Date.now() - c.t < CONFIG.CACHE_HOURS * 3600e3) {
+      pools[slotKey] = { key: cacheKey, items: c.items, tokens: c.tokens || {}, idx: 0 };
+      return pools[slotKey];
+    }
+  }
+  const prevTokens = force && pools[slotKey] ? pools[slotKey].tokens : {};
+  const { items, tokens } = await fetchCandidates(slotKey, prevTokens);
+  cache.set(cacheKey, { t: Date.now(), items, tokens });
+  pools[slotKey] = { key: cacheKey, items, tokens, idx: 0 };
+  return pools[slotKey];
+}
+
+/* ===================== ЭКРАНЫ ===================== */
+function renderSetup() {
+  setBack(prefs ? () => renderHome() : null);
+  draft = draft || { langs: [...(prefs?.langs || [])], cats: [...(prefs?.cats || [])], custom: [...(prefs?.custom || [])] };
+  const topics = draft.cats.length + draft.custom.length;
+  const topicsFull = topics >= CONFIG.MAX_TOPICS;
+  const langsFull = draft.langs.length >= CONFIG.MAX_LANGS;
+  const customFull = topicsFull || draft.custom.length >= CONFIG.MAX_CUSTOM;
+  const ok = draft.langs.length && topics;
+  $app.innerHTML = `
+    <div class="top">${prefs ? '<button class="icon-btn" data-a="home">←</button>' : ''}<div class="sp"></div></div>
+    <h1>${prefs ? 'Настройки' : 'Привет! 👋'}</h1>
+    <p class="muted">Выбери языки и темы — подберу видео под твой завтрак, обед и ужин.</p>
+    <h2>Языки видео<span class="cnt">${draft.langs.length}/${CONFIG.MAX_LANGS}</span></h2>
+    <div class="chips">${LANGS.map(l => { const on = draft.langs.includes(l.code); return `<button class="chip ${on ? 'on' : ''}" data-a="lang" data-v="${l.code}" ${!on && langsFull ? 'disabled' : ''}>${l.label}</button>`; }).join('')}</div>
+    <h2>Темы<span class="cnt">${topics}/${CONFIG.MAX_TOPICS}</span></h2>
+    <div class="chips">${CATEGORIES.map(c => { const on = draft.cats.includes(c.id); return `<button class="chip ${on ? 'on' : ''}" data-a="cat" data-v="${c.id}" ${!on && topicsFull ? 'disabled' : ''}>${c.label}</button>`; }).join('')}
+      ${draft.custom.map((t, i) => `<button class="chip on" data-a="rmcustom" data-v="${i}">${esc(t)}<span class="x">✕</span></button>`).join('')}
+    </div>
+    ${customFull
+      ? `<p class="muted" style="margin-top:10px">${topicsFull ? 'Максимум ' + CONFIG.MAX_TOPICS + ' тем. Убери одну, чтобы выбрать другую.' : 'Своих тем можно добавить не больше ' + CONFIG.MAX_CUSTOM + '.'}</p>`
+      : `<div class="row"><input type="text" id="custom" maxlength="40" placeholder="Своя тема, например: Формула 1"><button class="icon-btn" data-a="addcustom">+</button></div>`}
+    <button class="btn" data-a="save" ${ok ? '' : 'disabled'}>${prefs ? 'Сохранить' : 'Готово'}</button>`;
+}
+
+async function renderHome() {
+  setBack(null);
+  if (playing) await stopPlayer();
+  const data = await Promise.all(Object.keys(SLOTS).map(k => store.get('slot_' + k)));
+  $app.innerHTML = `
+    <div class="top"><h1>Что смотрим за едой?</h1><div class="sp"></div><button class="icon-btn" data-a="settings">⚙️</button></div>
+    <p class="muted">${selectedCats().map(c => esc(c.label)).join(' · ')}</p>
+    <div class="slots">${Object.entries(SLOTS).map(([k, s], i) => {
+      const cur = data[i]?.current;
+      return `<button class="slot" data-a="slot" data-v="${k}">
+        <span class="em">${s.emoji}</span>
+        <span><b>${s.label}</b><small>${s.min}–${s.max} мин</small></span>
+        ${cur ? `<span class="badge">▶ ${fmt(cur.pos)}</span>` : ''}
+      </button>`;
+    }).join('')}</div>`;
+}
+
+function videoCard(v, extra = '') {
+  videos[v.id] = v;
+  return `<button class="card ${extra}" data-a="play" data-v="${v.id}">
+    <img src="${esc(v.thumb)}" alt="" loading="lazy">
+    <span style="min-width:0"><span class="t">${esc(v.title)}</span>
+    <span class="m">${esc(v.channel)} · ${fmt(v.duration)}</span></span>
+  </button>`;
+}
+
+let lastSlot = 'breakfast';
+async function renderSlot(k, more = false) {
+  lastSlot = k;
+  const s = SLOTS[k];
+  setBack(() => renderHome());
+  if (playing) await stopPlayer();
+  const head = `<div class="top"><button class="icon-btn" data-a="home">←</button><h1 style="margin:0">${s.emoji} ${s.label}</h1></div>`;
+  $app.innerHTML = head + '<div class="spin"></div>';
+
+  if (!CONFIG.API_KEY || CONFIG.API_KEY.startsWith('ВСТАВЬ')) {
+    $app.innerHTML = head + '<div class="msg">Не указан YouTube API key (CONFIG.API_KEY).</div>';
+    return;
+  }
+
+  const cur = (await store.get('slot_' + k))?.current;
+  const seen = await getSeen();
+  let list = [];
+  try {
+    let pool = await getPool(k);
+    if (more) pool.idx += CONFIG.PAGE_SIZE;
+    const filter = () => pool.items
+      .filter(v => v.id !== cur?.id && !seen.includes(v.id))
+      .sort((a, b) => (b.cat === cur?.cat) - (a.cat === cur?.cat));
+    let avail = filter();
+    if (pool.idx >= avail.length) { pool = await getPool(k, true); avail = filter(); }
+    list = avail.slice(pool.idx, pool.idx + CONFIG.PAGE_SIZE);
+  } catch (e) {
+    $app.innerHTML = head + `<div class="msg">${esc(e.message)}</div>` + (cur ? `<h2>Продолжить</h2>${contCard(cur)}` : '');
+    return;
+  }
+
+  $app.innerHTML = head +
+    (cur ? `<h2>Продолжить</h2>${contCard(cur)}<h2>Или что-то похожее</h2>` : `<h2>Подборка на ${s.min}–${s.max} мин</h2>`) +
+    (list.length ? list.map(v => videoCard(v)).join('') : '<div class="msg">Ничего не нашлось. Попробуй добавить темы или языки в настройках.</div>') +
+    `<button class="btn ghost" data-a="more" data-v="${k}">🔄 Другие видео</button>`;
+}
+
+function contCard(cur) {
+  videos[cur.id] = cur;
+  const pct = Math.min(100, Math.round(cur.pos / cur.duration * 100));
+  return `<button class="card cont" data-a="resume" data-v="${cur.id}">
+    <img src="${esc(cur.thumb)}" alt="">
+    <span style="min-width:0;flex:1"><span class="t">${esc(cur.title)}</span>
+    <span class="m">${esc(cur.channel)} · с ${fmt(cur.pos)} из ${fmt(cur.duration)}</span>
+    <span class="bar"><i style="width:${pct}%"></i></span></span>
+  </button>`;
+}
+
+/* ===================== ПЛЕЕР ===================== */
+let ytReady = null;
+function loadYT() {
+  if (ytReady) return ytReady;
+  ytReady = new Promise(res => {
+    if (window.YT && YT.Player) return res();
+    window.onYouTubeIframeAPIReady = res;
+    const s = document.createElement('script');
+    s.src = 'https://www.youtube.com/iframe_api';
+    document.head.appendChild(s);
+  });
+  return ytReady;
+}
+
+async function openPlayer(k, v, start = 0) {
+  if (playing) await stopPlayer();
+  playing = { k, v };
+  lastSaved = -1;
+  setBack(() => renderSlot(k));
+  $app.innerHTML = `
+    <div class="top"><button class="icon-btn" data-a="back-slot" data-v="${k}">←</button><div class="sp"></div></div>
+    <div class="player"><div id="yt"></div></div>
+    <h2>${esc(v.title)}</h2>
+    <p class="muted">${esc(v.channel)} · ${fmt(v.duration)}</p>`;
+  addSeen(v.id);
+  await loadYT();
+  if (!playing || playing.v.id !== v.id) return;
+  player = new YT.Player('yt', {
+    videoId: v.id,
+    playerVars: { start: Math.max(0, Math.floor(start)), playsinline: 1, rel: 0, autoplay: 1 },
+    events: {
+      onStateChange: e => {
+        if (e.data === YT.PlayerState.PAUSED || e.data === YT.PlayerState.ENDED) saveProgress(true);
+      }
+    }
+  });
+  progTimer = setInterval(() => saveProgress(false), 10000);
+}
+
+async function saveProgress(force) {
+  if (!player || !playing || typeof player.getCurrentTime !== 'function') return;
+  const pos = player.getCurrentTime() || 0;
+  const dur = player.getDuration() || playing.v.duration;
+  if (!force && Math.abs(pos - lastSaved) < 3) return;
+  lastSaved = pos;
+  const { k, v } = playing;
+  const key = 'slot_' + k;
+  const sd = (await store.get(key)) || {};
+  if (dur && pos / dur >= CONFIG.FINISHED_RATIO) {
+    if (sd.current && sd.current.id === v.id) sd.current = null;
+    else return;
+  } else if (pos >= 5) {
+    sd.current = {
+      id: v.id, title: v.title.slice(0, 120), channel: (v.channel || '').slice(0, 60),
+      thumb: v.thumb, duration: Math.floor(dur), cat: v.cat, pos: Math.floor(pos), ts: Date.now()
+    };
+  } else return;
+  await store.set(key, sd);
+}
+
+async function stopPlayer() {
+  clearInterval(progTimer);
+  await saveProgress(true);
+  try { player && player.destroy(); } catch {}
+  player = null; playing = null;
+}
+
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveProgress(true); });
+window.addEventListener('pagehide', () => saveProgress(true));
+
+/* ===================== СОБЫТИЯ ===================== */
+$app.addEventListener('click', async e => {
+  const el = e.target.closest('[data-a]');
+  if (!el) return;
+  const a = el.dataset.a, v = el.dataset.v;
+  if (a === 'lang' || a === 'cat') {
+    const arr = a === 'lang' ? draft.langs : draft.cats;
+    const i = arr.indexOf(v);
+    if (i >= 0) arr.splice(i, 1);
+    else if (a === 'lang' ? arr.length < CONFIG.MAX_LANGS : draft.cats.length + draft.custom.length < CONFIG.MAX_TOPICS) arr.push(v);
+    renderSetup();
+  } else if (a === 'addcustom') {
+    const t = (document.getElementById('custom')?.value || '').trim();
+    if (t && !draft.custom.includes(t) && draft.custom.length < CONFIG.MAX_CUSTOM
+        && draft.cats.length + draft.custom.length < CONFIG.MAX_TOPICS) draft.custom.push(t);
+    renderSetup();
+  } else if (a === 'rmcustom') {
+    draft.custom.splice(+v, 1); renderSetup();
+  } else if (a === 'save') {
+    prefs = draft; draft = null; pools = {};
+    await store.set('prefs', prefs);
+    renderHome();
+  } else if (a === 'settings') {
+    draft = null; renderSetup();
+  } else if (a === 'home') {
+    draft = null; renderHome();
+  } else if (a === 'slot') {
+    renderSlot(v);
+  } else if (a === 'more') {
+    renderSlot(v, true);
+  } else if (a === 'back-slot') {
+    renderSlot(v);
+  } else if (a === 'play') {
+    const k = currentSlotKey(); openPlayer(k, videos[v], 0);
+  } else if (a === 'resume') {
+    const k = currentSlotKey(); const cur = videos[v];
+    openPlayer(k, cur, Math.max(0, cur.pos - 3));
+  }
+});
+$app.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.id === 'custom') $app.querySelector('[data-a=addcustom]').click();
+});
+
+function currentSlotKey() { return lastSlot; }
+
+/* ===================== СТАРТ ===================== */
+(async function init() {
+  if (inTelegram) { tg.ready(); tg.expand(); }
+  prefs = await store.get('prefs');
+  if (prefs) { // подрезаем старые настройки под текущие лимиты
+    prefs.langs = (prefs.langs || []).slice(0, CONFIG.MAX_LANGS);
+    prefs.custom = (prefs.custom || []).slice(0, CONFIG.MAX_CUSTOM);
+    prefs.cats = (prefs.cats || []).slice(0, Math.max(0, CONFIG.MAX_TOPICS - prefs.custom.length));
+  }
+  if (prefs && prefs.langs?.length) renderHome(); else renderSetup();
+})();
+</script>
+</body>
+</html>
